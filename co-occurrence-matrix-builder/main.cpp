@@ -9,6 +9,7 @@
 #include <cmath>
 #include <execution>
 #include <mutex>
+#include <ranges>
 
 bool is_string_alpha(std::string& str) {
 	for (char& c : str) {
@@ -32,25 +33,15 @@ void update_word_maps(
 	}
 }
 
-std::vector<std::vector<unsigned int>> chunk_builder(std::vector<unsigned int> words, unsigned int chunk_size) {
-	std::vector<std::vector<unsigned int>> chunks{};
-	std::vector<unsigned int> chunk{};
+template<typename T>
+std::vector<std::vector<size_t>> chunk_builder(const std::vector<T>& data, const size_t& chunk_size) {
+	size_t data_size{ data.size() }, tot_chunks{ static_cast<size_t>(std::llroundl(static_cast<long double>(data_size) / static_cast<long double>(chunk_size))) };
+	std::vector<std::vector<size_t>> chunks(tot_chunks);
 
-	unsigned int cnt{ 1 };
-	for (unsigned int word : words) {
-		if (cnt >= chunk_size) {
-			chunks.push_back(chunk);
-			chunk.clear();
-			cnt = 1;
+	for (size_t chunk_idx{}; chunk_idx < tot_chunks; chunk_idx++) {
+		for (size_t idx{}; idx < chunk_size && chunk_idx * chunk_size + idx < data_size; idx++) {
+			chunks[chunk_idx].push_back(chunk_idx * chunk_size + idx);
 		}
-
-		chunk.push_back(word);
-
-		cnt++;
-	}
-
-	if (!chunk.empty()) {
-		chunks.push_back(chunk);
 	}
 
 	return chunks;
@@ -68,8 +59,8 @@ int main(int argc, char* argv[]) {
 	//std::cout << "Corpus file: " << in_file_path << '\n';
 	//std::cout << "Matrix file: " << out_file_path << '\n';
 
-	constexpr const char* in_file_path = "D:\\corpora\\brown\\words.txt";
-	 constexpr const char* out_file_path = "D:\\corpora\\brown\\words-matrix-test.txt";
+	constexpr const char* in_file_path = "C:\\corpora\\brown\\words.txt";
+	 constexpr const char* out_file_path = "C:\\corpora\\brown\\words-matrix-test.txt";
 
 	// Open input and output files
 	std::fstream ifile(in_file_path, std::ios_base::in);
@@ -111,25 +102,27 @@ int main(int argc, char* argv[]) {
 
 	// Initialize co-occurrence matrix
 	std::vector<std::unordered_map<unsigned int, std::atomic<unsigned int>>> occurrence_matrix(unq_cnt);
+	std::vector<std::vector<size_t>> chunks = chunk_builder(words, 8192);
 
 	std::cout << "[INFO] Building co-occurrence matrix..." << std::endl;
 
-	std::for_each(std::execution::par, words.begin(), words.end(), [&](unsigned int& word) {
-		size_t idx{ static_cast<size_t>(&word - &words[0]) };
-		for (std::size_t offset{ idx - (idx > 1 ? 2 : (idx > 0 ? 1 : 0)) }; offset <= idx + (idx + 2 < wrd_cnt ? 2 : (idx + 1 < wrd_cnt ? 1 : 0)); offset++) {
-			occurrence_matrix[word][words[offset]]++;
+	std::for_each(std::execution::par, chunks.begin(), chunks.end(), [&](const std::vector<size_t> indexs) {
+		for (size_t idx{}; idx < indexs.size(); idx++) {
+			for (std::size_t offset{ idx - (idx > 1 ? 2 : (idx > 0 ? 1 : 0)) }; offset <= idx + (idx + 2 < wrd_cnt ? 2 : (idx + 1 < wrd_cnt ? 1 : 0)); offset++) {
+				occurrence_matrix[words[idx]][words[offset]]++;
+			}
 		}
 		});
 
 	// Build co - occurrence matrix
-	for (size_t index{}; index <= wrd_cnt; index++) {
-		for (size_t offset{ index - (index > 1 ? 2 : (index > 0 ? 1 : 0)) }; offset <= index + (index + 2 < wrd_cnt ? 2 : (index + 1 < wrd_cnt ? 1 : 0)); offset++) {
-			occurrence_matrix[words[index]][words[offset]]++;
-		}
+	//for (size_t index{}; index <= wrd_cnt; index++) {
+	//	for (size_t offset{ index - (index > 1 ? 2 : (index > 0 ? 1 : 0)) }; offset <= index + (index + 2 < wrd_cnt ? 2 : (index + 1 < wrd_cnt ? 1 : 0)); offset++) {
+	//		occurrence_matrix[words[index]][words[offset]]++;
+	//	}
 
-		// Print progress
-		std::cout << "\rProgress: " << static_cast<unsigned int>(std::roundf(static_cast<float>(index) / static_cast<float>(wrd_cnt) * 100u)) << "%";
-	}
+	//	// Print progress
+	//	std::cout << "\rProgress: " << static_cast<unsigned int>(std::roundf(static_cast<float>(index) / static_cast<float>(wrd_cnt) * 100u)) << "%";
+	//}
 
 	std::cout << "\rProgress: 100%" << std::flush << "\n[INFO] Finished building co-occurrence matrix.\n[INFO] Writing co-occurrence matrix to '" << out_file_path << "'...\n";
 
