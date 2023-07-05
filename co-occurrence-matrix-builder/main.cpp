@@ -9,6 +9,9 @@
 #include <thread>
 #include <queue>
 #include <sstream>
+#include <future>
+#include <utility>
+#include <any>
 
 bool is_string_alpha(std::string& str) {
 	for (char& c : str) {
@@ -46,6 +49,11 @@ std::vector<std::vector<size_t>> chunkinator(const std::vector<_t>& data, const 
 	return chunks;
 }
 
+
+/*
+* This class provides a thread safe message queue.
+* It's primary use is to handle out of order thread completions.
+*/
 template<typename _t>
 class message_queue {
 	std::queue<_t> m_queue{};
@@ -54,17 +62,20 @@ class message_queue {
 
 public:
 
+	// Guard and push message to the end of queue
 	void push(_t const& message) {
 		std::lock_guard<std::mutex> lock(m_mutex);
 		m_queue.push(message);
 		m_condition.notify_one();
 	}
 
+	// Guard and check if queue is empty
 	bool empty() const {
 		std::lock_guard<std::mutex> lock(m_mutex);
 		return m_queue.size();
 	}
 
+	// Guard and retun first message if one exists
 	bool try_pop(_t& popped_message) {
 		std::lock_guard<std::mutex> lock(m_mutex);
 		if (m_queue.empty()) {
@@ -76,6 +87,7 @@ public:
 		return true;
 	}
 
+	// Guard and wait for first available message
 	void wait_and_pop(_t& popped_message) {
 		std::unique_lock<std::mutex> lock(m_mutex);
 		while (m_queue.empty()) {
@@ -88,23 +100,23 @@ public:
 };
 
 int main(int argc, char* argv[]) {
-	//if (argc != 3) {
-	//	std::cerr << "Usage: " << argv[0] << " <corpus.txt> <matrix.txt>\n";
-	//	return 1;
-	//}
+	if (argc != 3) {
+		std::cerr << "Usage: " << argv[0] << " <corpus.txt> <matrix.txt>\n";
+		return 1;
+	}
+	
+	std::string_view in_file_path = argv[1];
+	std::string_view out_file_path = argv[2];
+	
+	std::cout << "Corpus file: " << in_file_path << '\n';
+	std::cout << "Matrix file: " << out_file_path << '\n';
 
-	//std::string_view in_file_path = argv[1];
-	//std::string_view out_file_path = argv[2];
-
-	//std::cout << "Corpus file: " << in_file_path << '\n';
-	//std::cout << "Matrix file: " << out_file_path << '\n';
-
-	constexpr const char* in_file_path = "D:\\corpora\\brown\\words.txt";
-	constexpr const char* out_file_path = "D:\\corpora\\brown\\words-matrix-test.txt";
+	//constexpr const char* in_file_path = "D:\\corpora\\brown\\words.txt";
+	//constexpr const char* out_file_path = "D:\\corpora\\brown\\words-matrix-test.txt";
 
 	// Open input and output files
-	std::fstream ifile(in_file_path, std::ios_base::in);
-	std::fstream ofile(out_file_path, std::ios_base::out);
+	std::fstream ifile(in_file_path.data(), std::ios_base::in);
+	std::fstream ofile(out_file_path.data(), std::ios_base::out);
 
 	// Check if files are open
 	if (!ifile.is_open() || !ofile.is_open()) {
@@ -192,7 +204,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	std::cout << "\n\n[INFO] Finished building co-occurrence matrix." << std::endl;
+	std::cout << "\n\n[INFO] Finished building co-occurrence matrix.\n[INFO] Assembling occurrences for output..." << std::endl;
 
 	for (size_t idx{}; idx < tot_unique; idx++) {
 		ofile << idx << ":" << int_to_word[idx] << " ";
@@ -248,7 +260,7 @@ int main(int argc, char* argv[]) {
 			std::cout << "\rProgress: " << std::llroundl(static_cast<long double>(completed_cnt) / static_cast<long double>(tot_threads) * 100ull) << "%";
 		}
 
-		std::cout << "\n\n[INFO] Occurrence list built.\n[INFO] Writing matrix to '" << out_file_path << "'." << std::endl;
+		std::cout << "\n\n[INFO] Occurrences ready for output.\n[INFO] Writing matrix to '" << out_file_path << "'." << std::endl;
 
 		size_t written_cnt{};
 
